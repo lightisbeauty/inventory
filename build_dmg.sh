@@ -20,8 +20,9 @@ swiftc -o "$SCRIPT_DIR/InventoryViewer" \
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-cp "$SCRIPT_DIR/InventoryViewer"   "$APP/Contents/MacOS/InventoryViewer"
-cp "$SCRIPT_DIR/inventory_mac.py"  "$APP/Contents/Resources/inventory_mac.py"
+cp "$SCRIPT_DIR/InventoryViewer"           "$APP/Contents/MacOS/InventoryViewer"
+cp "$SCRIPT_DIR/inventory_mac.py"          "$APP/Contents/Resources/inventory_mac.py"
+cp "$SCRIPT_DIR/_splash/inventory.icns"    "$APP/Contents/Resources/inventory.icns"
 
 cat > "$APP/Contents/Info.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -39,11 +40,13 @@ cat > "$APP/Contents/Info.plist" << 'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>
-    <string>26062501</string>
+    <string>26062502</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>12.0</string>
+    <key>CFBundleIconFile</key>
+    <string>inventory</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSHumanReadableCopyright</key>

@@ -610,7 +610,7 @@ def build():
     parts.append(
         '</div>\n'
         '<div id="diff-view" class="diff-view"></div>\n'
-        '<div class="footer">inventory v26062501 &middot; by: @lightisbeauty</div>\n'
+        '<div class="footer">inventory v26062502 &middot; by: @lightisbeauty</div>\n'
         '<script>\n'
         'var isNative=!!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.nativeExport);\n'
         'function exportPDF(){\n'

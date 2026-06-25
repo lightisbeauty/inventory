@@ -1,5 +1,11 @@
 # Changelog
 
+## v26062502 — 2026-06-25
+
+### Added
+- App icon (inventory-icon.svg) — navy background with grid motif, blue i letterform, magenta accents
+
+
 ## v26062501 — 2026-06-25
 
 ### Added
