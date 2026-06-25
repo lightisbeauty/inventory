@@ -7,12 +7,45 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNa
     var htmlPath: String = ""
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if offerMoveToApplications() { return }
         showScanningWindow()
         DispatchQueue.global(qos: .userInitiated).async {
             self.ensureDependencies()
             self.runScan()
             DispatchQueue.main.async { self.loadReport() }
         }
+    }
+
+    func offerMoveToApplications() -> Bool {
+        guard let bundlePath = Bundle.main.bundlePath as NSString? else { return false }
+        let appName = Bundle.main.bundlePath.components(separatedBy: "/").last ?? "inventory.app"
+        let dest = "/Applications/\(appName)"
+        let current = bundlePath as String
+
+        if current.hasPrefix("/Applications") { return false }
+        if FileManager.default.fileExists(atPath: dest) { return false }
+
+        let alert = NSAlert()
+        alert.messageText = "Move to Applications?"
+        alert.informativeText = "Would you like to move inventory to your Applications folder?"
+        alert.addButton(withTitle: "Move to Applications")
+        alert.addButton(withTitle: "Run from here")
+        alert.alertStyle = .informational
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            do {
+                try FileManager.default.moveItem(atPath: current, toPath: dest)
+                NSWorkspace.shared.open(URL(fileURLWithPath: dest))
+                NSApp.terminate(nil)
+                return true
+            } catch {
+                let errAlert = NSAlert()
+                errAlert.messageText = "Couldn't move to Applications"
+                errAlert.informativeText = "You can drag it manually. The app will continue from its current location."
+                errAlert.runModal()
+            }
+        }
+        return false
     }
 
     func showScanningWindow() {
@@ -54,11 +87,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNa
 
     func ensureDependencies() {
         func which(_ cmd: String) -> Bool {
-            let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            p.arguments = ["which", cmd]
-            p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
-            try? p.run(); p.waitUntilExit()
-            return p.terminationStatus == 0
+            let paths = [
+                "/opt/homebrew/bin/\(cmd)",
+                "/usr/local/bin/\(cmd)",
+                "/usr/bin/\(cmd)",
+                "/bin/\(cmd)"
+            ]
+            return paths.contains { FileManager.default.isExecutableFile(atPath: $0) }
         }
 
         if !which("brew") {
@@ -108,6 +143,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNa
         let p = Process(); let pipe = Pipe()
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
         p.arguments = ["-l", "-c", cmd]
+        var env = ProcessInfo.processInfo.environment
+        let brewPaths = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin"
+        env["PATH"] = brewPaths + ":" + (env["PATH"] ?? "/usr/bin:/bin")
+        p.environment = env
         p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
         try? p.run(); p.waitUntilExit()
         return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

@@ -18,10 +18,13 @@ Runtime dependencies:
               cargo       – Rust binaries section
               conda/mamba – Conda environments section
 """
-import subprocess, json, re, sys
+import subprocess, json, re, sys, os
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+
+_brew_paths = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin"
+os.environ["PATH"] = _brew_paths + ":" + os.environ.get("PATH", "/usr/bin:/bin")
 
 # ── subprocess helper ────────────────────────────────────────────────────────
 def run(cmd, default=""):
