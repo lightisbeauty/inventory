@@ -73,9 +73,55 @@ def scan_plists(directory):
     with ThreadPoolExecutor(max_workers=16) as ex:
         return list(ex.map(read, plists))
 
+# ── system info ──────────────────────────────────────────────────────────────
+def fetch_system_info():
+    info = {}
+    model_id = run("sysctl -n hw.model")
+    model_names = {
+        "Mac16": "MacBook Pro", "Mac15": "MacBook Air", "Mac14": "Mac",
+        "MacBookPro": "MacBook Pro", "MacBookAir": "MacBook Air",
+        "Macmini": "Mac mini", "MacPro": "Mac Pro", "iMac": "iMac",
+    }
+    model = "Mac"
+    for prefix, name in model_names.items():
+        if model_id.startswith(prefix):
+            model = name
+            break
+    info["model"] = model
+    info["chip"] = run("sysctl -n machdep.cpu.brand_string")
+    mem_bytes = run("sysctl -n hw.memsize")
+    if mem_bytes.isdigit():
+        info["memory"] = f"{int(mem_bytes) // (1024**3)} GB"
+    serial_raw = run("ioreg -l | grep IOPlatformSerialNumber")
+    m = re.search(r'"IOPlatformSerialNumber"\s*=\s*"([^"]+)"', serial_raw)
+    info["serial"] = m.group(1) if m else "—"
+    info["macos_ver"] = run("sw_vers -productVersion")
+    macos_names = {
+        "26": "Tahoe", "15": "Sequoia", "14": "Sonoma", "13": "Ventura",
+        "12": "Monterey", "11": "Big Sur", "10.15": "Catalina",
+    }
+    ver = info.get("macos_ver", "")
+    major = ver.split(".")[0] if ver else ""
+    info["macos_name"] = macos_names.get(major, "macOS")
+    display_map = {
+        "Mac16,1": "14-inch", "Mac16,2": "14-inch", "Mac16,3": "14-inch",
+        "Mac16,4": "14-inch", "Mac16,5": "16-inch", "Mac16,6": "16-inch",
+        "Mac16,7": "16-inch", "Mac16,8": "14-inch", "Mac16,10": "15-inch",
+        "Mac16,11": "13-inch", "Mac16,15": "13-inch", "Mac16,16": "15-inch",
+        "Mac15,3": "14-inch", "Mac15,6": "14-inch", "Mac15,7": "14-inch",
+        "Mac15,8": "16-inch", "Mac15,9": "14-inch", "Mac15,10": "14-inch",
+        "Mac15,11": "16-inch", "Mac15,12": "13-inch", "Mac15,13": "15-inch",
+        "Mac14,2": "13-inch", "Mac14,5": "14-inch", "Mac14,6": "16-inch",
+        "Mac14,7": "13-inch", "Mac14,9": "14-inch", "Mac14,10": "16-inch",
+        "Mac14,15": "15-inch",
+    }
+    info["display"] = display_map.get(model_id, "")
+    return info
+
 # ── package manager data fetchers ────────────────────────────────────────────
 def fetch_brew():
-    """Returns (cask_map, formula_map) or (None, None) if brew not found."""
+    """Returns (cask_map, formula_map) or (None, None) if brew not found
+    or if mas is the only user-installed formula (auto-installed by our tool)."""
     if not which("brew"):
         return None, None
     raw = run(["brew", "info", "--json=v2", "--installed"])
@@ -85,15 +131,25 @@ def fetch_brew():
         data = json.loads(raw)
     except json.JSONDecodeError:
         return {}, {}
-    casks = {c["token"]: c.get("installed") or c.get("version", "")
-             for c in data.get("casks", []) if c.get("token")}
-    formulae = {}
+    casks = []
+    for c in data.get("casks", []):
+        token = c.get("token", "")
+        if token:
+            ver = c.get("installed") or c.get("version", "")
+            casks.append((token, ver, c.get("homepage", ""), c.get("desc", "")))
+    casks.sort(key=lambda x: x[0].lower())
+    formulae = []
     for f in data.get("formulae", []):
         name = f.get("name", "")
         installed = f.get("installed", [])
         ver = installed[0].get("version", "") if installed else ""
         if name:
-            formulae[name] = ver
+            formulae.append((name, ver, f.get("homepage", ""), f.get("desc", "")))
+    formulae.sort(key=lambda x: x[0].lower())
+    leaves_raw = run(["brew", "leaves"])
+    leaves = {l.strip() for l in leaves_raw.splitlines() if l.strip()}
+    if leaves <= {"mas"} and not casks:
+        return None, None
     return casks, formulae
 
 def fetch_mas():
@@ -163,11 +219,37 @@ def fetch_pip():
         return None
     raw = run([pip, "list", "--format=columns"])
     items = []
-    for line in raw.splitlines()[2:]:  # skip header rows
+    for line in raw.splitlines()[2:]:
         parts = line.split()
         if len(parts) >= 2:
             items.append((parts[0], parts[1]))
-    return sorted(items, key=lambda x: x[0].lower())
+    if not items:
+        return []
+    names = [n for n, _ in items]
+    meta_raw = run([pip, "show"] + names)
+    meta = {}
+    current = {}
+    for line in meta_raw.splitlines():
+        if line.startswith("Name: "):
+            if current.get("name"):
+                meta[current["name"].lower()] = current
+            current = {"name": line[6:].strip()}
+        elif line.startswith("Summary: "):
+            current["desc"] = line[9:].strip()
+        elif line.startswith("Home-page: "):
+            val = line[11:].strip()
+            current["url"] = "" if val in ("", "UNKNOWN", "None") else val
+        elif line == "---":
+            if current.get("name"):
+                meta[current["name"].lower()] = current
+            current = {}
+    if current.get("name"):
+        meta[current["name"].lower()] = current
+    result = []
+    for name, ver in items:
+        m = meta.get(name.lower(), {})
+        result.append((name, ver, m.get("url", ""), m.get("desc", "")))
+    return sorted(result, key=lambda x: x[0].lower())
 
 def fetch_npm():
     if not which("npm"):
@@ -195,7 +277,25 @@ def fetch_gem():
         m = re.match(r"^(\S+)\s+\(([^)]+)\)", line)
         if m:
             items.append((m.group(1), m.group(2).split(",")[0].strip()))
-    return sorted(items, key=lambda x: x[0].lower())
+    if not items:
+        return []
+    def gem_meta(name):
+        raw = run(["gem", "specification", name, "--yaml"])
+        url, desc = "", ""
+        for line in raw.splitlines():
+            line = line.strip()
+            if line.startswith("homepage:"):
+                url = line.split(":", 1)[1].strip().strip('"').strip("'")
+            elif line.startswith("summary:"):
+                desc = line.split(":", 1)[1].strip().strip('"').strip("'")
+        return (name, url, desc)
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        meta = {n: (u, d) for n, u, d in ex.map(lambda i: gem_meta(i[0]), items)}
+    result = []
+    for name, ver in items:
+        u, d = meta.get(name, ("", ""))
+        result.append((name, ver, u, d))
+    return sorted(result, key=lambda x: x[0].lower())
 
 def fetch_cargo():
     if not which("cargo"):
@@ -222,12 +322,24 @@ def fetch_conda():
 
 # ── HTML helpers ─────────────────────────────────────────────────────────────
 def esc(s):
-    return str(s).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+    return str(s).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
 
-def li_row(name, ver="", extra=""):
+def format_repo_url(url):
+    if 'github.com/' in url:
+        path = url.split('github.com/')[1].strip('/')
+        parts = path.split('/')
+        return parts[0] + '/' + parts[1] if len(parts) >= 2 else path
+    return url.replace('https://', '').replace('http://', '').strip('/')
+
+def li_row(name, ver="", extra="", url="", desc=""):
+    title = f' title="{esc(desc)}"' if desc else ""
     v = f'<span class="ver">{esc(ver)}</span>' if ver else ""
     e = f'<span class="plist-file">{esc(extra)}</span>' if extra else ""
-    return f"<li>{esc(name)}{e}{v}</li>\n"
+    link = ""
+    if url:
+        display = format_repo_url(url)
+        link = f'<a class="repo-link" href="{esc(url)}" target="_blank">{esc(display)}</a>'
+    return f'<li><span class="app-name"{title}>{esc(name)}</span>{e}{v}{link}</li>\n'
 
 def ul(rows):
     return "<ul>\n" + "".join(rows) + "</ul>\n" if rows else ""
@@ -250,39 +362,64 @@ def section(title, body, count, open_attr=""):
     )
 
 # ── styles ───────────────────────────────────────────────────────────────────
-FONTS = (
-    '<link rel="preconnect" href="https://fonts.googleapis.com">'
-    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-    '<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500'
-    '&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">'
-)
-
 CSS = """
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{height:100%}
-body{font-family:'Syne',sans-serif;background:#040d1a;color:#f0f6ff;font-size:14px;line-height:1.7;padding:2rem;max-width:960px;margin:0 auto;min-height:100vh}
-.page-header{margin-bottom:2rem}
-.page-header h1{font-size:22px;font-weight:700;color:#f0f6ff;letter-spacing:-0.01em;margin-bottom:4px}
-.page-header .meta{font-family:'DM Mono',monospace;font-size:12px;color:#6a8caa}
-.page-header .meta span{color:#3eb8f0}
-details{background:#0a1c30;border:1px solid rgba(62,184,240,0.15);margin-bottom:10px;overflow:hidden}
+body{font-family:-apple-system,sans-serif;background:#040d1a;color:#fff;font-size:14px;padding:2rem;max-width:960px;margin:0 auto;min-height:100vh}
+.page-header{margin-bottom:1rem;display:flex;align-items:flex-end;justify-content:space-between;gap:16px}
+.header-left{flex:1}
+.page-header h1{font-size:22px;font-weight:700;color:#fff;letter-spacing:-0.01em;margin-bottom:4px}
+.page-header .meta{font-family:monospace;font-size:12px;color:#888}
+.page-header .meta span{color:#41b6e6}
+details{background:#2a2a2a;border:0.5px solid #444;border-radius:8px;margin-bottom:10px;overflow:hidden}
 summary{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;user-select:none;list-style:none}
 summary::-webkit-details-marker{display:none}
-summary::before{content:'\\25B8';color:#3eb8f0;font-size:11px;transition:transform .15s;flex-shrink:0}
+summary::before{content:'\\25B8';color:#41b6e6;font-size:11px;transition:transform .15s;flex-shrink:0}
 details[open] summary::before{transform:rotate(90deg)}
-.section-title{font-family:'DM Mono',monospace;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.25em;color:#3eb8f0;flex:1}
-.section-count{font-family:'DM Mono',monospace;font-size:11px;color:#6a8caa;background:#071428;border:1px solid rgba(62,184,240,0.15);border-radius:99px;padding:2px 8px}
-.section-body{padding:0 16px 14px;border-top:1px solid rgba(62,184,240,0.15)}
+.section-title{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#41b6e6;flex:1}
+.section-count{font-family:monospace;font-size:11px;color:#888;background:#1a1a1a;border:0.5px solid #333;border-radius:99px;padding:2px 8px}
+.section-body{padding:0 16px 14px;border-top:0.5px solid #333}
 ul{list-style:none;padding:0;margin-top:10px}
-li{font-family:'DM Mono',monospace;font-size:13px;color:#f0f6ff;padding:5px 0;border-bottom:1px solid rgba(62,184,240,0.07);display:flex;align-items:baseline;gap:8px;word-break:break-all}
+li{font-family:monospace;font-size:13px;color:#fff;padding:5px 0;border-bottom:0.5px solid #333;display:flex;align-items:baseline;gap:8px;word-break:break-all}
 li:last-child{border-bottom:none}
-li::before{content:'\\2014';color:#6a8caa;flex-shrink:0}
-.ver{font-family:'DM Mono',monospace;font-size:11px;color:#3eb8f0;background:#071428;border:1px solid rgba(62,184,240,0.15);padding:1px 6px;margin-left:auto;flex-shrink:0}
-.plist-file{font-family:'DM Mono',monospace;font-size:11px;color:#6a8caa;margin-left:4px}
-.empty{font-family:'DM Mono',monospace;font-size:12px;color:#6a8caa;padding:8px 0;margin-top:8px}
-.notice{margin-top:10px;background:#071428;border:1px solid rgba(240,201,62,0.25);padding:8px 12px;font-family:'DM Mono',monospace;font-size:12px;color:#f0c93e}
-.notice code{color:#f0c93e;background:#0a1c30;padding:1px 5px}
-.footer{margin-top:2.5rem;font-size:10px;color:#6a8caa;font-family:'DM Mono',monospace;text-align:center}
+li::before{content:'\\2014';color:#444;flex-shrink:0}
+.app-name{min-width:0}
+.repo-link{flex:1;text-align:left;font-family:monospace;font-size:10px;color:#7a9ab0;text-decoration:none;white-space:nowrap;padding:0 8px}
+.repo-link:hover{color:#41b6e6}
+.ver{font-size:11px;color:#41b6e6;background:#0d1f28;border:0.5px solid #1a3a4a;border-radius:4px;padding:1px 6px;flex-shrink:0}
+.plist-file{font-size:11px;color:#555;margin-left:4px}
+.empty{font-family:monospace;font-size:12px;color:#555;padding:8px 0;margin-top:8px}
+.notice{margin-top:10px;background:#1a140d;border:0.5px solid #3a2a1a;border-radius:6px;padding:8px 12px;font-family:monospace;font-size:12px;color:#a07840}
+.notice code{color:#c8a060;background:#221a0d;padding:1px 5px;border-radius:3px}
+.page-header .sysinfo{font-family:monospace;font-size:12px;color:#888;margin-top:4px}
+.page-header .sysinfo span{color:#41b6e6}
+.header-spacer{display:none}
+.footer{margin-top:2.5rem;font-size:10px;color:#7a9ab0;font-family:monospace;text-align:center}
+.export-bar{display:flex;gap:8px;flex-shrink:0;padding-top:2px}
+.export-btn{font-family:monospace;font-size:11px;color:#41b6e6;background:none;border:0.5px solid #444;border-radius:4px;padding:5px 12px;cursor:pointer;text-transform:uppercase;letter-spacing:0.06em}
+.export-btn:hover{border-color:#db3eb1}
+@media print{
+  body{background:#fff;color:#000;padding:0.5in}
+  .export-bar{display:none}
+  details{background:#f5f5f5;border:0.5px solid #ccc;break-inside:avoid}
+  details[open]{break-inside:auto}
+  .section-title{color:#1a6b8a}
+  .section-count{background:#e8e8e8;border-color:#ccc;color:#555}
+  .section-body{border-top-color:#ccc}
+  li{border-bottom-color:#ddd;color:#000}
+  li::before{color:#aaa}
+  .ver{color:#1a6b8a;background:#e8f4f8;border-color:#b8d8e8}
+  .plist-file{color:#888}
+  .repo-link{color:#888}
+  .notice{background:#fff8e8;border-color:#e8d8a8;color:#7a6020}
+  .notice code{background:#f0e8c8;color:#7a6020}
+  .footer{color:#aaa}
+  .page-header{border-bottom:1px solid #ccc;padding-bottom:12px;margin-bottom:16px}
+  .page-header .sysinfo{color:#555}
+  .page-header .sysinfo span{color:#1a6b8a}
+  .page-header .meta{color:#888}
+  .page-header .meta span{color:#1a6b8a}
+}
 """
 
 # ── main build ───────────────────────────────────────────────────────────────
@@ -304,13 +441,15 @@ def build():
         f_gem       = ex.submit(fetch_gem)
         f_cargo     = ex.submit(fetch_cargo)
         f_conda     = ex.submit(fetch_conda)
+        f_sysinfo   = ex.submit(fetch_system_info)
         f_la_user   = ex.submit(scan_plists, Path.home() / "Library" / "LaunchAgents")
         f_la_sys    = ex.submit(scan_plists, "/Library/LaunchAgents")
         f_ld_sys    = ex.submit(scan_plists, "/Library/LaunchDaemons")
 
+        sysinfo     = f_sysinfo.result()
         apps        = f_apps.result()
         uapps       = f_uapps.result()
-        cask_map, formula_map = f_brew.result()
+        brew_casks, brew_formulae = f_brew.result()
         mas_state, mas_data   = f_mas.result()
         macports    = f_macports.result()
         fink        = f_fink.result()
@@ -329,20 +468,26 @@ def build():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Software Inventory — {esc(HOST)}</title>
-{FONTS}
+<title>Software inventory — {esc(HOST)}</title>
 <style>{CSS}</style>
 </head>
 <body>
 <div class="page-header">
-  <h1>Software Inventory</h1>
-  <div class="meta">Host: <span>{esc(HOST)}</span> &nbsp;&middot;&nbsp; Generated: <span>{esc(GEN_DATE)}</span></div>
+  <div class="header-left">
+    <h1><span style="color:#41b6e6">Software</span> inventory</h1>
+    <div class="meta">Generated: <span>{esc(GEN_DATE)}</span></div>
+    <div class="sysinfo"><span>{esc(sysinfo.get('model','Mac'))}</span>{(' &middot; ' + esc(sysinfo.get('display',''))) if sysinfo.get('display') else ''} &middot; <span>{esc(sysinfo.get('chip','—'))}</span> &middot; <span>{esc(sysinfo.get('memory','—'))}</span> &middot; {esc(sysinfo.get('macos_name','macOS'))} <span>{esc(sysinfo.get('macos_ver',''))}</span> &middot; SN: <span>{esc(sysinfo.get('serial','—'))}</span></div>
+  </div>
+  <div class="export-bar">
+    <button class="export-btn" onclick="saveHTML()">Export HTML</button>
+    <button class="export-btn" onclick="exportPDF()">Export PDF</button>
+  </div>
 </div>
 """]
 
     # /Applications
     rows = [li_row(n, v) for n, v in apps]
-    parts.append(section("/Applications", ul(rows) or empty(), len(apps), "open"))
+    parts.append(section("/Applications", ul(rows) or empty(), len(apps)))
 
     # ~/Applications
     rows = [li_row(n, v) for n, v in uapps]
@@ -350,13 +495,13 @@ def build():
         parts.append(section("~/Applications", ul(rows), len(uapps)))
 
     # Homebrew Casks — hidden if brew not installed
-    if cask_map is not None:
-        rows = [li_row(k, v) for k, v in sorted(cask_map.items())]
+    if brew_casks is not None:
+        rows = [li_row(n, v, url=u, desc=d) for n, v, u, d in brew_casks]
         parts.append(section("Homebrew Casks", ul(rows) or empty("No casks installed."), len(rows)))
 
     # Homebrew Formulae — hidden if brew not installed
-    if formula_map is not None:
-        rows = [li_row(k, v) for k, v in sorted(formula_map.items())]
+    if brew_formulae is not None:
+        rows = [li_row(n, v, url=u, desc=d) for n, v, u, d in brew_formulae]
         parts.append(section("Homebrew Formulae (CLI)", ul(rows) or empty("No formulae installed."), len(rows)))
 
     # Mac App Store
@@ -391,7 +536,7 @@ def build():
 
     # pip — hidden if not installed
     if pip is not None:
-        rows = [li_row(n, v) for n, v in pip]
+        rows = [li_row(n, v, url=u, desc=d) for n, v, u, d in pip]
         parts.append(section("Python Packages (pip)", ul(rows) or empty("No pip packages installed."), len(rows)))
 
     # npm — hidden if not installed
@@ -401,7 +546,7 @@ def build():
 
     # gem — hidden if not installed
     if gem is not None:
-        rows = [li_row(n, v) for n, v in gem]
+        rows = [li_row(n, v, url=u, desc=d) for n, v, u, d in gem]
         parts.append(section("Ruby Gems", ul(rows) or empty("No gems installed."), len(rows)))
 
     # cargo — hidden if not installed
@@ -429,19 +574,38 @@ def build():
     if ld_sys:
         parts.append(section("Launch Daemons — System", ul(rows), len(ld_sys)))
 
-    # Login Items
-    if which("sfltool"):
-        raw = run(["sfltool", "dumpbtm"])
-        li_items = [l.strip() for l in raw.splitlines()
-                    if l.strip().startswith(("url", "name", "developer"))]
-        rows = [f"<li>{esc(x)}</li>\n" for x in li_items]
-        body = ul(rows) or empty("No login items detected.")
-        if li_items:
-            parts.append(section("Login Items", body, len(li_items)))
-    # sfltool absent → section omitted entirely
+    # Login Items — omitted; all available methods require user authorization
 
     parts.append(
-        '<div class="footer">Light Is Beauty Inc &middot; inventory_mac.py</div>\n'
+        '<div class="footer">inventory v26062401 &middot; by: @lightisbeauty</div>\n'
+        '<script>\n'
+        'var isNative=!!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.nativeExport);\n'
+        'function exportPDF(){\n'
+        '  if(isNative){\n'
+        '    window.webkit.messageHandlers.nativeExport.postMessage({action:"pdf"});\n'
+        '  }else{\n'
+        '    var saved=[];\n'
+        '    document.querySelectorAll("details").forEach(function(d){saved.push(d.open);d.open=true});\n'
+        '    setTimeout(function(){\n'
+        '      window.print();\n'
+        '      document.querySelectorAll("details").forEach(function(d,i){d.open=saved[i]});\n'
+        '    },100);\n'
+        '  }\n'
+        '}\n'
+        'function saveHTML(){\n'
+        '  var el=document.querySelector(".export-bar");el.style.display="none";\n'
+        '  var html=document.documentElement.outerHTML;\n'
+        '  el.style.display="";\n'
+        '  if(isNative){\n'
+        '    window.webkit.messageHandlers.nativeExport.postMessage({action:"html",html:html});\n'
+        '  }else{\n'
+        '    var b=new Blob([html],{type:"text/html"});\n'
+        '    var a=document.createElement("a");a.href=URL.createObjectURL(b);\n'
+        '    a.download="software_inventory.html";a.click();\n'
+        '    URL.revokeObjectURL(a.href);\n'
+        '  }\n'
+        '}\n'
+        '</script>\n'
         '</body>\n</html>\n'
     )
     return "".join(parts)
