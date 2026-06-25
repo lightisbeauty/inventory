@@ -401,6 +401,32 @@ li::before{content:'\\2014';color:#444;flex-shrink:0}
 .export-bar{display:flex;gap:8px;flex-shrink:0;padding-top:2px}
 .export-btn{font-family:monospace;font-size:11px;color:#41b6e6;background:none;border:0.5px solid #444;border-radius:4px;padding:5px 12px;cursor:pointer;text-transform:uppercase;letter-spacing:0.06em}
 .export-btn:hover{border-color:#db3eb1}
+.diff-view{display:none}
+.diff-header{margin-bottom:1.5rem}
+.diff-header h2{font-size:18px;font-weight:700;color:#fff;margin-bottom:4px}
+.diff-header .diff-meta{font-family:monospace;font-size:11px;color:#888}
+.diff-header .diff-meta span{color:#41b6e6}
+.diff-summary{display:flex;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap}
+.diff-stat{font-family:monospace;font-size:11px;padding:4px 12px;border-radius:4px}
+.diff-stat.added{color:#3ef09e;background:rgba(62,240,158,0.08);border:0.5px solid rgba(62,240,158,0.3)}
+.diff-stat.removed{color:#db3eb1;background:rgba(219,62,177,0.08);border:0.5px solid rgba(219,62,177,0.3)}
+.diff-stat.updated{color:#f0c93e;background:rgba(240,201,62,0.08);border:0.5px solid rgba(240,201,62,0.3)}
+.diff-card{background:#2a2a2a;border:0.5px solid #444;border-radius:8px;margin-bottom:10px;overflow:hidden}
+.diff-card-title{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#41b6e6;padding:12px 16px;border-bottom:0.5px solid #333}
+.diff-card-body{padding:0 16px 14px}
+.diff-group-label{font-family:monospace;font-size:10px;letter-spacing:0.2em;text-transform:uppercase;padding:10px 0 6px;border-bottom:0.5px solid #222}
+.diff-group-label.added{color:#3ef09e}
+.diff-group-label.removed{color:#db3eb1}
+.diff-group-label.updated{color:#f0c93e}
+.diff-row{font-family:monospace;font-size:13px;padding:5px 0;border-bottom:0.5px solid #222;display:flex;align-items:baseline;gap:8px}
+.diff-row:last-child{border-bottom:none}
+.diff-row::before{content:'\2014';color:#444;flex-shrink:0}
+.diff-row .name{flex:1}
+.diff-row .ver-new{font-size:11px;color:#3ef09e;background:rgba(62,240,158,0.08);border:0.5px solid rgba(62,240,158,0.3);border-radius:4px;padding:1px 6px}
+.diff-row .ver-old{font-size:11px;color:#db3eb1;background:rgba(219,62,177,0.08);border:0.5px solid rgba(219,62,177,0.3);border-radius:4px;padding:1px 6px}
+.diff-row .ver-arrow{font-size:11px;color:#555;padding:0 4px}
+.diff-row .ver-updated{font-size:11px;color:#f0c93e;background:rgba(240,201,62,0.08);border:0.5px solid rgba(240,201,62,0.3);border-radius:4px;padding:1px 6px}
+.no-changes{font-family:monospace;font-size:12px;color:#555;text-align:center;padding:40px 0}
 @media print{
   body{background:#fff;color:#000;padding:0.5in}
   .export-bar{display:none}
@@ -482,10 +508,12 @@ def build():
     <div class="sysinfo"><span>{esc(sysinfo.get('model','Mac'))}</span>{(' &middot; ' + esc(sysinfo.get('display',''))) if sysinfo.get('display') else ''} &middot; <span>{esc(sysinfo.get('chip','—'))}</span> &middot; <span>{esc(sysinfo.get('memory','—'))}</span> &middot; {esc(sysinfo.get('macos_name','macOS'))} <span>{esc(sysinfo.get('macos_ver',''))}</span> &middot; SN: <span>{esc(sysinfo.get('serial','—'))}</span></div>
   </div>
   <div class="export-bar">
+    <button class="export-btn" onclick="openCompare()">Compare</button>
     <button class="export-btn" onclick="saveHTML()">Export HTML</button>
     <button class="export-btn" onclick="exportPDF()">Export PDF</button>
   </div>
 </div>
+<div id="report-sections">
 """]
 
     # /Applications
@@ -580,7 +608,9 @@ def build():
     # Login Items — omitted; all available methods require user authorization
 
     parts.append(
-        '<div class="footer">inventory v26062402 &middot; by: @lightisbeauty</div>\n'
+        '</div>\n'
+        '<div id="diff-view" class="diff-view"></div>\n'
+        '<div class="footer">inventory v26062501 &middot; by: @lightisbeauty</div>\n'
         '<script>\n'
         'var isNative=!!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.nativeExport);\n'
         'function exportPDF(){\n'
@@ -607,6 +637,67 @@ def build():
         '    a.download="software_inventory.html";a.click();\n'
         '    URL.revokeObjectURL(a.href);\n'
         '  }\n'
+        '}\n'
+        'function openCompare(){\n'
+        '  if(isNative){\n'
+        '    window.webkit.messageHandlers.nativeExport.postMessage({action:"compare"});\n'
+        '  }else{\n'
+        '    var inp=document.createElement("input");inp.type="file";inp.accept=".html";\n'
+        '    inp.onchange=function(){var r=new FileReader();r.onload=function(e){receiveCompareData(e.target.result,""+inp.files[0].name);};r.readAsText(inp.files[0]);};\n'
+        '    inp.click();\n'
+        '  }\n'
+        '}\n'
+        'function parseReport(doc){\n'
+        '  var sections={};\n'
+        '  doc.querySelectorAll("details").forEach(function(d){\n'
+        '    var t=d.querySelector(".section-title");if(!t)return;\n'
+        '    var name=t.textContent.trim();var items={};\n'
+        '    d.querySelectorAll("li").forEach(function(li){\n'
+        '      var n=li.querySelector(".app-name");var v=li.querySelector(".ver");\n'
+        '      if(n)items[n.textContent.trim()]=v?v.textContent.trim():"";\n'
+        '    });\n'
+        '    sections[name]=items;\n'
+        '  });\n'
+        '  return sections;\n'
+        '}\n'
+        'function receiveCompareData(html,filename){\n'
+        '  var parser=new DOMParser();\n'
+        '  var prevDoc=parser.parseFromString(html,"text/html");\n'
+        '  var prev=parseReport(prevDoc);\n'
+        '  var curr=parseReport(document);\n'
+        '  var allSections=new Set(Object.keys(curr).concat(Object.keys(prev)));\n'
+        '  var totalAdded=0,totalRemoved=0,totalUpdated=0;\n'
+        '  var cards="";\n'
+        '  allSections.forEach(function(sec){\n'
+        '    var c=curr[sec]||{};var p=prev[sec]||{};\n'
+        '    var added=[],removed=[],updated=[];\n'
+        '    Object.keys(c).forEach(function(n){\n'
+        '      if(!(n in p))added.push({n:n,v:c[n]});\n'
+        '      else if(c[n]!==p[n]&&c[n]&&p[n])updated.push({n:n,ov:p[n],nv:c[n]});\n'
+        '    });\n'
+        '    Object.keys(p).forEach(function(n){if(!(n in c))removed.push({n:n,v:p[n]});});\n'
+        '    if(!added.length&&!removed.length&&!updated.length)return;\n'
+        '    totalAdded+=added.length;totalRemoved+=removed.length;totalUpdated+=updated.length;\n'
+        '    var rows="";\n'
+        '    if(added.length){rows+=\'<div class="diff-group-label added">Added (\'+added.length+\')</div>\';\n'
+        '      added.forEach(function(i){rows+=\'<div class="diff-row"><span class="name">\'+i.n+\'</span><span class="ver-new">\'+i.v+\'</span></div>\';});}\n'
+        '    if(removed.length){rows+=\'<div class="diff-group-label removed">Removed (\'+removed.length+\')</div>\';\n'
+        '      removed.forEach(function(i){rows+=\'<div class="diff-row"><span class="name">\'+i.n+\'</span><span class="ver-old">\'+i.v+\'</span></div>\';});}\n'
+        '    if(updated.length){rows+=\'<div class="diff-group-label updated">Updated (\'+updated.length+\')</div>\';\n'
+        '      updated.forEach(function(i){rows+=\'<div class="diff-row"><span class="name">\'+i.n+\'</span><span class="ver-old">\'+i.ov+\'</span><span class="ver-arrow">→</span><span class="ver-updated">\'+i.nv+\'</span></div>\';});}\n'
+        '    cards+=\'<div class="diff-card"><div class="diff-card-title">\'+sec+\'</div><div class="diff-card-body">\'+rows+\'</div></div>\';\n'
+        '  });\n'
+        '  var report=document.getElementById("report-sections");\n'
+        '  var diff=document.getElementById("diff-view");\n'
+        '  report.style.display="none";\n'
+        '  diff.style.display="block";\n'
+        '  diff.innerHTML=\'<div class="diff-header"><h2>Changes</h2><div class="diff-meta">Comparing current scan vs. <span>\'+filename+\'</span></div></div>\'\n'
+        '    +\'<div class="diff-summary"><span class="diff-stat added">+ \'+totalAdded+\' added</span><span class="diff-stat removed">— \'+totalRemoved+\' removed</span><span class="diff-stat updated">↑ \'+totalUpdated+\' updated</span><button class="export-btn" style="margin-left:auto" onclick="closeCompare()">Back</button></div>\'\n'
+        '    +(cards||\'<div class="no-changes">No changes found between the two reports.</div>\');\n'
+        '}\n'
+        'function closeCompare(){\n'
+        '  document.getElementById("report-sections").style.display="";\n'
+        '  document.getElementById("diff-view").style.display="none";\n'
         '}\n'
         '</script>\n'
         '</body>\n</html>\n'

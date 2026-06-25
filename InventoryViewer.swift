@@ -183,6 +183,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNa
               let action = body["action"] as? String else { return }
         if action == "pdf" { exportPDF() }
         else if action == "html", let html = body["html"] as? String { exportHTML(html) }
+        else if action == "compare" { openCompare() }
     }
 
     func exportPDF() {
@@ -192,7 +193,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNa
             guard let self = self else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 let panel = NSSavePanel()
-                panel.nameFieldStringValue = "software_inventory.pdf"
+                panel.nameFieldStringValue = self.exportFilename(ext: "pdf")
                 panel.allowedContentTypes = [.pdf]
                 panel.begin { response in
                     guard response == .OK, let url = panel.url else {
@@ -218,13 +219,41 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNa
         }
     }
 
+    func exportFilename(ext: String) -> String {
+        let date = DateFormatter()
+        date.dateFormat = "yyMMdd"
+        let d = date.string(from: Date())
+        let serial = shellOutput("ioreg -l | grep IOPlatformSerialNumber | awk -F'\"' '{print $4}'")
+        return "inventory_\(d)_\(serial).\(ext)"
+    }
+
     func exportHTML(_ html: String) {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "software_inventory.html"
+        panel.nameFieldStringValue = exportFilename(ext: "html")
         panel.allowedContentTypes = [.html]
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             try? html.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    func openCompare() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.html]
+        panel.allowsMultipleSelection = false
+        panel.message = "Select a previous inventory report to compare"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url,
+                  let html = try? String(contentsOf: url, encoding: .utf8) else { return }
+            let filename = url.lastPathComponent
+            let escaped = html
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "`", with: "\\`")
+            DispatchQueue.main.async {
+                self.webView.evaluateJavaScript(
+                    "receiveCompareData(`\(escaped)`, `\(filename)`);"
+                )
+            }
         }
     }
 }

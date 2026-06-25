@@ -5,7 +5,7 @@ A macOS app that scans your system for all installed software and generates an i
 ## What it scans
 
 **Applications**
-- `/Applications` — with version numbers
+- `/Applications` — with version numbers (includes menu bar apps and background utilities not visible in the Dock)
 - `~/Applications` — with version numbers
 
 **Package Managers**

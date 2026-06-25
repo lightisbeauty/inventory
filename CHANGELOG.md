@@ -1,5 +1,16 @@
 # Changelog
 
+## v26062501 — 2026-06-25
+
+### Added
+- Compare feature — import any previous HTML report and view a delta (Added / Removed / Updated) per section
+- Export filenames now include date and serial number: `inventory_YYMMDD_SERIALNUMBER.html/.pdf`
+
+### Fixed
+- Removed menu bar app card (apps are already enumerated in /Applications)
+- Repo renamed to lowercase `inventory`
+
+
 ## v26062402 — 2026-06-24
 
 ### Fixed
