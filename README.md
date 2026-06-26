@@ -2,6 +2,12 @@
 
 A macOS app that scans your system for all installed software and generates an interactive report in a native window.
 
+![inventory main view](_screenshots/main.jpg)
+
+![inventory section detail](_screenshots/detail.jpg)
+
+![inventory compare view](_screenshots/compare.jpg)
+
 ## What it scans
 
 **Applications**
