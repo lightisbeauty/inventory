@@ -6,6 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP="$SCRIPT_DIR/inventory.app"
 STAGING="$SCRIPT_DIR/.dmg-staging"
 OUTPUT="$SCRIPT_DIR/inventory.dmg"
+SIGN_ID="Developer ID Application: Javier Sanchez (WGZ97UN8SY)"
+NOTARY_PROFILE="inventory-notary-2"
 
 echo ""
 echo "  Building inventory.app..."
@@ -40,7 +42,7 @@ cat > "$APP/Contents/Info.plist" << 'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>
-    <string>26062502</string>
+    <string>26062603</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>LSMinimumSystemVersion</key>
@@ -55,7 +57,8 @@ cat > "$APP/Contents/Info.plist" << 'PLIST'
 </plist>
 PLIST
 
-echo "  inventory.app built"
+codesign --force --deep --options runtime --sign "$SIGN_ID" "$APP"
+echo "  inventory.app built + signed"
 echo ""
 echo "  Packaging DMG..."
 echo ""
@@ -77,5 +80,12 @@ create-dmg \
     "$STAGING"
 
 rm -rf "$STAGING"
+
+codesign --force --sign "$SIGN_ID" "$OUTPUT"
+echo ""
+echo "  Notarizing..."
+echo ""
+xcrun notarytool submit "$OUTPUT" --keychain-profile "$NOTARY_PROFILE" --wait
+xcrun stapler staple "$OUTPUT"
 echo ""
 echo "  Done: $OUTPUT"

@@ -148,8 +148,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNa
         env["PATH"] = brewPaths + ":" + (env["PATH"] ?? "/usr/bin:/bin")
         p.environment = env
         p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
-        try? p.run(); p.waitUntilExit()
-        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        try? p.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     func runScan() {
@@ -270,13 +272,6 @@ func buildMenuBar() {
                                action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     appItem.submenu = appMenu
     mainMenu.addItem(appItem)
-
-    let editItem = NSMenuItem()
-    let editMenu = NSMenu(title: "Edit")
-    editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
-    editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
-    editItem.submenu = editMenu
-    mainMenu.addItem(editItem)
 
     let winItem = NSMenuItem()
     let winMenu = NSMenu(title: "Window")

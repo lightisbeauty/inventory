@@ -26,13 +26,21 @@ from concurrent.futures import ThreadPoolExecutor
 _brew_paths = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin"
 os.environ["PATH"] = _brew_paths + ":" + os.environ.get("PATH", "/usr/bin:/bin")
 
+_DBG = "/tmp/inventory_debug.log"
+def _dbg(msg):
+    try:
+        with open(_DBG, "a") as f:
+            f.write(f"{datetime.now().strftime('%H:%M:%S')} {msg}\n")
+    except Exception:
+        pass
+
 # ── subprocess helper ────────────────────────────────────────────────────────
-def run(cmd, default=""):
+def run(cmd, default="", timeout=30):
     try:
         if isinstance(cmd, str):
-            r = subprocess.run(cmd, capture_output=True, text=True, shell=True)
+            r = subprocess.run(cmd, capture_output=True, text=True, shell=True, timeout=timeout)
         else:
-            r = subprocess.run(cmd, capture_output=True, text=True)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return r.stdout.strip() if r.returncode == 0 else default
     except Exception:
         return default
@@ -48,8 +56,10 @@ def app_version(app_path):
     return plistbuddy("CFBundleShortVersionString", Path(app_path) / "Contents" / "Info.plist")
 
 def scan_apps(directory):
+    _dbg(f"scan_apps start: {directory}")
     d = Path(directory)
     if not d.is_dir():
+        _dbg(f"scan_apps skip (no dir): {directory}")
         return []
     candidates = sorted(d.glob("*.app")) + sorted(
         p for p in d.glob("*/*.app") if p.parent != d
@@ -66,8 +76,10 @@ def scan_apps(directory):
     return results
 
 def scan_plists(directory):
+    _dbg(f"scan_plists start: {directory}")
     d = Path(directory)
     if not d.is_dir():
+        _dbg(f"scan_plists skip (no dir): {directory}")
         return []
     plists = sorted(d.glob("*.plist"))
     def read(f):
@@ -78,6 +90,7 @@ def scan_plists(directory):
 
 # ── system info ──────────────────────────────────────────────────────────────
 def fetch_system_info():
+    _dbg("fetch_system_info start")
     info = {}
     model_id = run("sysctl -n hw.model")
     model_names = {
@@ -123,6 +136,7 @@ def fetch_system_info():
 
 # ── package manager data fetchers ────────────────────────────────────────────
 def fetch_brew():
+    _dbg("fetch_brew start")
     """Returns (cask_map, formula_map) or (None, None) if brew not found
     or if mas is the only user-installed formula (auto-installed by our tool)."""
     if not which("brew"):
@@ -156,6 +170,7 @@ def fetch_brew():
     return casks, formulae
 
 def fetch_mas():
+    _dbg("fetch_mas start")
     """
     Returns one of three states:
       ("no_mas", receipts_list)   – mas not installed; MAS apps detected via receipt scan
@@ -184,6 +199,7 @@ def fetch_mas():
         return "no_mas_no_receipts", []
 
 def fetch_macports():
+    _dbg("fetch_macports start")
     if not which("port"):
         return None
     raw = run(["port", "installed"])
@@ -199,6 +215,7 @@ def fetch_macports():
     return sorted(items, key=lambda x: x[0].lower())
 
 def fetch_fink():
+    _dbg("fetch_fink start")
     if not which("fink"):
         return None
     raw = run(["fink", "list", "--installed"])
@@ -210,6 +227,7 @@ def fetch_fink():
     return sorted(items, key=lambda x: x[0].lower())
 
 def fetch_nix():
+    _dbg("fetch_nix start")
     if not which("nix-env"):
         return None
     raw = run(["nix-env", "-q"])
@@ -217,6 +235,7 @@ def fetch_nix():
     return sorted(items, key=lambda x: x[0].lower())
 
 def fetch_pip():
+    _dbg("fetch_pip start")
     pip = "pip3" if which("pip3") else ("pip" if which("pip") else None)
     if not pip:
         return None
@@ -255,6 +274,7 @@ def fetch_pip():
     return sorted(result, key=lambda x: x[0].lower())
 
 def fetch_npm():
+    _dbg("fetch_npm start")
     if not which("npm"):
         return None
     raw = run(["npm", "list", "-g", "--depth=0", "--parseable"])
@@ -272,6 +292,7 @@ def fetch_npm():
     return sorted(set(items), key=lambda x: x[0].lower())
 
 def fetch_gem():
+    _dbg("fetch_gem start")
     if not which("gem"):
         return None
     raw = run(["gem", "list", "--local"])
@@ -301,6 +322,7 @@ def fetch_gem():
     return sorted(result, key=lambda x: x[0].lower())
 
 def fetch_cargo():
+    _dbg("fetch_cargo start")
     if not which("cargo"):
         return None
     raw = run(["cargo", "install", "--list"])
@@ -312,6 +334,7 @@ def fetch_cargo():
     return sorted(items, key=lambda x: x[0].lower())
 
 def fetch_conda():
+    _dbg("fetch_conda start")
     tool = "mamba" if which("mamba") else ("conda" if which("conda") else None)
     if not tool:
         return None
@@ -475,22 +498,23 @@ def build():
         f_la_sys    = ex.submit(scan_plists, "/Library/LaunchAgents")
         f_ld_sys    = ex.submit(scan_plists, "/Library/LaunchDaemons")
 
-        sysinfo     = f_sysinfo.result()
-        apps        = f_apps.result()
-        uapps       = f_uapps.result()
-        brew_casks, brew_formulae = f_brew.result()
-        mas_state, mas_data   = f_mas.result()
-        macports    = f_macports.result()
-        fink        = f_fink.result()
-        nix         = f_nix.result()
-        pip         = f_pip.result()
-        npm         = f_npm.result()
-        gem         = f_gem.result()
-        cargo       = f_cargo.result()
-        conda       = f_conda.result()
-        la_user     = f_la_user.result()
-        la_sys      = f_la_sys.result()
-        ld_sys      = f_ld_sys.result()
+        _dbg("waiting: sysinfo");  sysinfo     = f_sysinfo.result()
+        _dbg("waiting: apps");     apps        = f_apps.result()
+        _dbg("waiting: uapps");    uapps       = f_uapps.result()
+        _dbg("waiting: brew");     brew_casks, brew_formulae = f_brew.result()
+        _dbg("waiting: mas");      mas_state, mas_data   = f_mas.result()
+        _dbg("waiting: macports"); macports    = f_macports.result()
+        _dbg("waiting: fink");     fink        = f_fink.result()
+        _dbg("waiting: nix");      nix         = f_nix.result()
+        _dbg("waiting: pip");      pip         = f_pip.result()
+        _dbg("waiting: npm");      npm         = f_npm.result()
+        _dbg("waiting: gem");      gem         = f_gem.result()
+        _dbg("waiting: cargo");    cargo       = f_cargo.result()
+        _dbg("waiting: conda");    conda       = f_conda.result()
+        _dbg("waiting: la_user");  la_user     = f_la_user.result()
+        _dbg("waiting: la_sys");   la_sys      = f_la_sys.result()
+        _dbg("waiting: ld_sys");   ld_sys      = f_ld_sys.result()
+        _dbg("all results collected")
 
     parts = [f"""<!DOCTYPE html>
 <html lang="en">
@@ -610,7 +634,7 @@ def build():
     parts.append(
         '</div>\n'
         '<div id="diff-view" class="diff-view"></div>\n'
-        '<div class="footer">inventory v26062601 &middot; by: @lightisbeauty</div>\n'
+        '<div class="footer">inventory v26062603 &middot; by: @lightisbeauty</div>\n'
         '<script>\n'
         'var isNative=!!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.nativeExport);\n'
         'function exportPDF(){\n'
@@ -715,7 +739,14 @@ def build():
         '</script>\n'
         '</body>\n</html>\n'
     )
-    return "".join(parts)
+    _dbg("build() HTML assembled")
+    html = "".join(parts)
+    _dbg(f"build() done, html size: {len(html)} bytes")
+    return html
 
 if __name__ == "__main__":
-    print(build())
+    _dbg("main: calling build()")
+    html = build()
+    _dbg("main: writing output")
+    print(html)
+    _dbg("main: done")
