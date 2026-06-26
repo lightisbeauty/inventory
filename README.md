@@ -46,9 +46,13 @@ Everything runs locally. No data is transmitted, collected, or shared.
 
 On first launch, inventory will offer to install Homebrew and `mas` if they aren't present — both are needed for the full Mac App Store inventory. All other package manager sections appear automatically if the tool is already installed on your system, and are hidden if not.
 
-## Export
+## Export & Compare
 
-Reports can be exported as **PDF** (all sections expanded, via native save dialog) or **HTML** (self-contained file, viewable in any browser).
+Reports can be exported as **PDF** (all sections expanded) or **HTML** (self-contained file, viewable in any browser).
+
+**Keep your HTML exports.** The Compare feature diffs any two HTML reports — so if you save a snapshot today, you can load it later to see exactly what was added, removed, or updated between then and now. This is the primary way to track software changes over time: run inventory, export HTML, save it somewhere you'll find it.
+
+To compare: click **Compare** in the app, pick a previously saved HTML report, and inventory will show a section-by-section diff with added, removed, and updated items — including any macOS or system changes.
 
 ## Requirements
 
