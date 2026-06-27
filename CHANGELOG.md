@@ -1,5 +1,43 @@
 # Changelog
 
+## v26062606 — 2026-06-27
+
+### Added
+- Update checker — checks GitHub Releases on launch and notifies when a new version is available
+- "Check for Updates…" menu item for manual checks at any time
+- "Automatically Check for Updates" toggle in the inventory menu (on by default, persists across restarts)
+
+
+## v26062605 — 2026-06-27
+
+### Added
+- Snapshot library — Save Snapshot stores a timestamped report to `~/Library/Application Support/inventory/snapshots/`
+- In-app snapshot picker — Compare now shows a list of saved snapshots (newest first) instead of a raw file picker
+- Delete snapshots directly from the picker; list refreshes in place
+- "Compare from file…" fallback at the bottom of the picker for external HTML files
+- Export bar redesigned as a 2×2 grid: Save Snapshot / Export HTML / Compare / Export PDF
+
+
+## v26062604 — 2026-06-26
+
+### Added
+- Compare diff cards are now collapsible — launch collapsed by default
+- System card always appears first in the diff; remaining sections sorted alphabetically
+- Each diff card shows a total change count badge
+
+
+## v26062603 — 2026-06-26
+
+### Added
+- Compare diff now includes a System card — tracks macOS version, model, chip, memory, and serial number between scans
+- 30-second timeout on all scanner subprocess calls — prevents any single stuck tool from hanging the report
+
+### Fixed
+- App now signed and notarized with Developer ID — resolves "damaged" Gatekeeper error on Sequoia and Tahoe
+- Fixed scan hang on machines with large inventories — pipe buffer deadlock in the Swift wrapper caused indefinite hang on "Scanning system…"
+- Removed Edit menu from menu bar (Cut/Copy/Paste don't apply to this app)
+
+
 ## v26062502 — 2026-06-25
 
 ### Added
