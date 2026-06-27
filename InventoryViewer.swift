@@ -1,6 +1,79 @@
 import Cocoa
 import WebKit
 
+let kCurrentVersion = "26062606"
+
+class UpdateChecker: NSObject {
+    static let shared = UpdateChecker()
+
+    var autoCheckEnabled: Bool {
+        get {
+            let stored = UserDefaults.standard.object(forKey: "autoCheckUpdates")
+            return stored == nil ? true : UserDefaults.standard.bool(forKey: "autoCheckUpdates")
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "autoCheckUpdates") }
+    }
+
+    func checkOnLaunch() {
+        guard autoCheckEnabled else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.check(silent: true) }
+    }
+
+    @objc func checkNow(_ sender: Any?) { check(silent: false) }
+
+    @objc func toggleAutoCheck(_ sender: NSMenuItem) {
+        autoCheckEnabled = !autoCheckEnabled
+        sender.state = autoCheckEnabled ? .on : .off
+    }
+
+    func check(silent: Bool) {
+        guard let url = URL(string: "https://api.github.com/repos/lightisbeauty/inventory/releases/latest") else { return }
+        var req = URLRequest(url: url)
+        req.setValue("inventory/\(kCurrentVersion)", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tag = json["tag_name"] as? String,
+                  let htmlURL = json["html_url"] as? String else {
+                if !silent { DispatchQueue.main.async { self.showError() } }
+                return
+            }
+            let latest = tag.trimmingCharacters(in: CharacterSet(charactersIn: "v"))
+            DispatchQueue.main.async {
+                if latest > kCurrentVersion { self.showAvailable(version: latest, url: htmlURL) }
+                else if !silent { self.showUpToDate() }
+            }
+        }.resume()
+    }
+
+    func showAvailable(version: String, url: String) {
+        let a = NSAlert()
+        a.messageText = "Update available"
+        a.informativeText = "inventory \(version) is available. You're running \(kCurrentVersion)."
+        a.addButton(withTitle: "Download")
+        a.addButton(withTitle: "Later")
+        if a.runModal() == .alertFirstButtonReturn, let u = URL(string: url) {
+            NSWorkspace.shared.open(u)
+        }
+    }
+
+    func showUpToDate() {
+        let a = NSAlert()
+        a.messageText = "You're up to date"
+        a.informativeText = "inventory \(kCurrentVersion) is the latest version."
+        a.addButton(withTitle: "OK")
+        a.runModal()
+    }
+
+    func showError() {
+        let a = NSAlert()
+        a.messageText = "Couldn't check for updates"
+        a.informativeText = "Make sure you're connected to the internet and try again."
+        a.addButton(withTitle: "OK")
+        a.runModal()
+    }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNavigationDelegate {
     var window: NSWindow!
     var webView: WKWebView!
@@ -12,7 +85,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNa
         DispatchQueue.global(qos: .userInitiated).async {
             self.ensureDependencies()
             self.runScan()
-            DispatchQueue.main.async { self.loadReport() }
+            DispatchQueue.main.async {
+                self.loadReport()
+                UpdateChecker.shared.checkOnLaunch()
+            }
         }
     }
 
@@ -329,6 +405,17 @@ func buildMenuBar() {
     let appMenu = NSMenu()
     appMenu.addItem(NSMenuItem(title: "About inventory",
                                action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+    appMenu.addItem(.separator())
+
+    let checkItem = NSMenuItem(title: "Check for Updates…", action: #selector(UpdateChecker.checkNow(_:)), keyEquivalent: "")
+    checkItem.target = UpdateChecker.shared
+    appMenu.addItem(checkItem)
+
+    let autoItem = NSMenuItem(title: "Automatically Check for Updates", action: #selector(UpdateChecker.toggleAutoCheck(_:)), keyEquivalent: "")
+    autoItem.target = UpdateChecker.shared
+    autoItem.state = UpdateChecker.shared.autoCheckEnabled ? .on : .off
+    appMenu.addItem(autoItem)
+
     appMenu.addItem(.separator())
     appMenu.addItem(NSMenuItem(title: "Quit inventory",
                                action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
