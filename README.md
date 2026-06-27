@@ -6,6 +6,8 @@ A macOS app that scans your system for all installed software and generates an i
 
 ![inventory section detail](_screenshots/detail.jpg)
 
+![inventory snapshot picker](_screenshots/snapshots.jpg)
+
 ![inventory compare view](_screenshots/compare.jpg)
 
 ## What it scans
