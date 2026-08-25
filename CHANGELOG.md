@@ -1,5 +1,13 @@
 # Changelog
 
+## v26082501 — 2026-08-25
+
+### Added
+- "Check for Updates…" now installs updates automatically — downloads the release DMG, mounts it, swaps the app in place, and relaunches, with automatic rollback if any step fails
+
+### Fixed
+- Export HTML / Export PDF from the Compare view no longer export the diff view itself — they now always capture the full inventory report, regardless of which view (report, Compare, or the snapshot picker) is on screen when you click export
+
 ## v26062606 — 2026-06-27
 
 ### Added

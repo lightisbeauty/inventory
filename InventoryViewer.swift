@@ -1,10 +1,12 @@
 import Cocoa
 import WebKit
 
-let kCurrentVersion = "26062606"
+let kCurrentVersion = "26082501"
 
 class UpdateChecker: NSObject {
     static let shared = UpdateChecker()
+
+    var installingPanel: NSPanel?
 
     var autoCheckEnabled: Bool {
         get {
@@ -39,20 +41,27 @@ class UpdateChecker: NSObject {
                 return
             }
             let latest = tag.trimmingCharacters(in: CharacterSet(charactersIn: "v"))
+            let assets = json["assets"] as? [[String: Any]] ?? []
+            let dmgURL = assets.first {
+                ($0["name"] as? String)?.lowercased().hasSuffix(".dmg") == true
+            }?["browser_download_url"] as? String
             DispatchQueue.main.async {
-                if latest > kCurrentVersion { self.showAvailable(version: latest, url: htmlURL) }
+                if latest > kCurrentVersion { self.showAvailable(version: latest, url: htmlURL, dmgURL: dmgURL) }
                 else if !silent { self.showUpToDate() }
             }
         }.resume()
     }
 
-    func showAvailable(version: String, url: String) {
+    func showAvailable(version: String, url: String, dmgURL: String?) {
         let a = NSAlert()
         a.messageText = "Update available"
         a.informativeText = "inventory \(version) is available. You're running \(kCurrentVersion)."
-        a.addButton(withTitle: "Download")
+        a.addButton(withTitle: dmgURL != nil ? "Install Update" : "Download")
         a.addButton(withTitle: "Later")
-        if a.runModal() == .alertFirstButtonReturn, let u = URL(string: url) {
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        if let dmgURL = dmgURL, let dl = URL(string: dmgURL) {
+            installUpdate(from: dl, version: version, fallbackURL: url)
+        } else if let u = URL(string: url) {
             NSWorkspace.shared.open(u)
         }
     }
@@ -71,6 +80,140 @@ class UpdateChecker: NSObject {
         a.informativeText = "Make sure you're connected to the internet and try again."
         a.addButton(withTitle: "OK")
         a.runModal()
+    }
+
+    // MARK: - Auto-install
+
+    func showInstalling(_ status: String) {
+        if let panel = installingPanel {
+            (panel.contentView?.subviews.compactMap { $0 as? NSTextField }.first)?.stringValue = status
+            return
+        }
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 280, height: 90),
+                            styleMask: [.titled, .nonactivatingPanel],
+                            backing: .buffered, defer: false)
+        panel.title = "Updating"
+        panel.isFloatingPanel = true
+        panel.center()
+
+        let spinner = NSProgressIndicator(frame: NSRect(x: 20, y: 30, width: 20, height: 20))
+        spinner.style = .spinning
+        spinner.startAnimation(nil)
+
+        let label = NSTextField(labelWithString: status)
+        label.frame = NSRect(x: 50, y: 34, width: 210, height: 20)
+
+        panel.contentView?.addSubview(spinner)
+        panel.contentView?.addSubview(label)
+        panel.makeKeyAndOrderFront(nil)
+        installingPanel = panel
+    }
+
+    func hideInstalling() {
+        installingPanel?.close()
+        installingPanel = nil
+    }
+
+    func run(_ launchPath: String, _ args: [String]) -> (Int32, String) {
+        let p = Process(); let pipe = Pipe()
+        p.executableURL = URL(fileURLWithPath: launchPath)
+        p.arguments = args
+        p.standardOutput = pipe; p.standardError = pipe
+        try? p.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return (p.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+    }
+
+    func installUpdate(from dmgURL: URL, version: String, fallbackURL: String) {
+        showInstalling("Downloading update…")
+        URLSession.shared.downloadTask(with: dmgURL) { tmpURL, response, error in
+            guard let tmpURL = tmpURL, error == nil,
+                  let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                DispatchQueue.main.async { self.installFailed(fallbackURL: fallbackURL) }
+                return
+            }
+            let dmgPath = FileManager.default.temporaryDirectory
+                .appendingPathComponent("inventory-update-\(version).dmg")
+            try? FileManager.default.removeItem(at: dmgPath)
+            do {
+                try FileManager.default.moveItem(at: tmpURL, to: dmgPath)
+            } catch {
+                DispatchQueue.main.async { self.installFailed(fallbackURL: fallbackURL) }
+                return
+            }
+            self.performInstall(dmgPath: dmgPath, fallbackURL: fallbackURL)
+        }.resume()
+    }
+
+    func performInstall(dmgPath: URL, fallbackURL: String) {
+        DispatchQueue.main.async { self.showInstalling("Installing update…") }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let mountPoint = FileManager.default.temporaryDirectory
+                .appendingPathComponent("inventory-update-mount-\(UUID().uuidString)").path
+            try? FileManager.default.createDirectory(atPath: mountPoint, withIntermediateDirectories: true)
+
+            let (attachStatus, _) = self.run("/usr/bin/hdiutil",
+                ["attach", "-nobrowse", "-readonly", "-mountpoint", mountPoint, dmgPath.path])
+            guard attachStatus == 0 else {
+                DispatchQueue.main.async { self.installFailed(fallbackURL: fallbackURL) }
+                return
+            }
+            defer { _ = self.run("/usr/bin/hdiutil", ["detach", mountPoint, "-quiet"]) }
+
+            guard let items = try? FileManager.default.contentsOfDirectory(atPath: mountPoint),
+                  let appName = items.first(where: { $0.hasSuffix(".app") }) else {
+                DispatchQueue.main.async { self.installFailed(fallbackURL: fallbackURL) }
+                return
+            }
+
+            let sourceApp = mountPoint + "/" + appName
+            let currentAppPath = Bundle.main.bundlePath
+            let destDir = (currentAppPath as NSString).deletingLastPathComponent
+            let destApp = destDir + "/" + appName
+            let backupApp = destApp + ".old"
+
+            try? FileManager.default.removeItem(atPath: backupApp)
+            do {
+                if FileManager.default.fileExists(atPath: destApp) {
+                    try FileManager.default.moveItem(atPath: destApp, toPath: backupApp)
+                }
+                try FileManager.default.copyItem(atPath: sourceApp, toPath: destApp)
+            } catch {
+                if FileManager.default.fileExists(atPath: backupApp)
+                    && !FileManager.default.fileExists(atPath: destApp) {
+                    try? FileManager.default.moveItem(atPath: backupApp, toPath: destApp)
+                }
+                DispatchQueue.main.async { self.installFailed(fallbackURL: fallbackURL) }
+                return
+            }
+            try? FileManager.default.removeItem(atPath: backupApp)
+            try? FileManager.default.removeItem(at: dmgPath)
+
+            DispatchQueue.main.async { self.relaunch(appPath: destApp) }
+        }
+    }
+
+    func relaunch(appPath: String) {
+        hideInstalling()
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: appPath), configuration: config) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
+    }
+
+    func installFailed(fallbackURL: String) {
+        hideInstalling()
+        let a = NSAlert()
+        a.messageText = "Couldn't install update automatically"
+        a.informativeText = "You can download and install it manually instead."
+        a.addButton(withTitle: "Open Release Page")
+        a.addButton(withTitle: "Cancel")
+        if a.runModal() == .alertFirstButtonReturn, let u = URL(string: fallbackURL) {
+            NSWorkspace.shared.open(u)
+        }
     }
 }
 
@@ -338,7 +481,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNa
                 panel.begin { response in
                     guard response == .OK, let url = panel.url else {
                         self.webView.evaluateJavaScript(
-                            "document.querySelectorAll('details').forEach(function(d){d.open=false})"
+                            "document.querySelectorAll('details').forEach(function(d){d.open=false}); restoreExportView();"
                         )
                         return
                     }
@@ -350,7 +493,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNa
                                 NSWorkspace.shared.open(url)
                             }
                             self.webView.evaluateJavaScript(
-                                "document.querySelectorAll('details').forEach(function(d){d.open=false})"
+                                "document.querySelectorAll('details').forEach(function(d){d.open=false}); restoreExportView();"
                             )
                         }
                     }
