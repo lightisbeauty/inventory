@@ -649,7 +649,7 @@ def build():
         '</div>\n'
         '<div id="diff-view" class="diff-view"></div>\n'
         '<div id="snapshot-picker" class="snapshot-picker diff-view"></div>\n'
-        '<div class="footer">inventory v26082501 &middot; by: @lightisbeauty</div>\n'
+        '<div class="footer">inventory v26082502 &middot; by: @lightisbeauty</div>\n'
         '<script>\n'
         'var isNative=!!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.nativeExport);\n'
         'var _exportViewState=null;\n'

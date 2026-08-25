@@ -1,7 +1,7 @@
 import Cocoa
 import WebKit
 
-let kCurrentVersion = "26082501"
+let kCurrentVersion = "26082502"
 
 class UpdateChecker: NSObject {
     static let shared = UpdateChecker()
@@ -189,6 +189,9 @@ class UpdateChecker: NSObject {
                 return
             }
             try? FileManager.default.removeItem(atPath: backupApp)
+            // Detach before deleting the backing DMG file — deleting it out from
+            // under a still-mounted volume can leave an orphaned mount behind.
+            _ = self.run("/usr/bin/hdiutil", ["detach", mountPoint, "-quiet"])
             try? FileManager.default.removeItem(at: dmgPath)
 
             DispatchQueue.main.async { self.relaunch(appPath: destApp) }

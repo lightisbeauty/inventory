@@ -1,5 +1,10 @@
 # Changelog
 
+## v26082502 — 2026-08-25
+
+### Fixed
+- Auto-installer no longer orphans a mounted DMG volume — `hdiutil detach` was deferred until after the temp DMG file was already deleted, which could leave the mount behind silently. Detach now happens explicitly before cleanup.
+
 ## v26082501 — 2026-08-25
 
 ### Added
