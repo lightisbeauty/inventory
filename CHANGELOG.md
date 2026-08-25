@@ -1,5 +1,11 @@
 # Changelog
 
+## v26082503 — 2026-08-25
+
+### Fixed
+- Auto-installer now rolls back correctly when a copy fails partway through, leaving a partial/broken app instead of nothing — previously the restore only fired if the app was completely missing after a failed copy
+- Auto-installer now recovers from a crash-interrupted update instead of destroying the backup — if the app were ever killed mid-swap, the next update attempt used to blindly delete the `.old` backup as "stale," even though it was the only working copy at that point
+
 ## v26082502 — 2026-08-25
 
 ### Fixed

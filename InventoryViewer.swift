@@ -1,7 +1,7 @@
 import Cocoa
 import WebKit
 
-let kCurrentVersion = "26082502"
+let kCurrentVersion = "26082503"
 
 class UpdateChecker: NSObject {
     static let shared = UpdateChecker()
@@ -174,15 +174,27 @@ class UpdateChecker: NSObject {
             let destApp = destDir + "/" + appName
             let backupApp = destApp + ".old"
 
-            try? FileManager.default.removeItem(atPath: backupApp)
-            do {
-                if FileManager.default.fileExists(atPath: destApp) {
-                    try FileManager.default.moveItem(atPath: destApp, toPath: backupApp)
+            // A backup left over from an interrupted previous update means that
+            // swap never finished. If the live app is missing, the backup is the
+            // only working copy -- restore it rather than deleting it. Otherwise
+            // it's just stale cleanup from a completed cycle.
+            if FileManager.default.fileExists(atPath: backupApp) {
+                if !FileManager.default.fileExists(atPath: destApp) {
+                    try? FileManager.default.moveItem(atPath: backupApp, toPath: destApp)
+                } else {
+                    try? FileManager.default.removeItem(atPath: backupApp)
                 }
+            }
+            do {
+                try FileManager.default.moveItem(atPath: destApp, toPath: backupApp)
                 try FileManager.default.copyItem(atPath: sourceApp, toPath: destApp)
             } catch {
-                if FileManager.default.fileExists(atPath: backupApp)
-                    && !FileManager.default.fileExists(atPath: destApp) {
+                // Recover to the last known-good app regardless of what's left at
+                // destApp -- a failed copyItem can leave a partial/broken .app
+                // there rather than nothing, so don't condition the restore on
+                // destApp being absent.
+                if FileManager.default.fileExists(atPath: backupApp) {
+                    try? FileManager.default.removeItem(atPath: destApp)
                     try? FileManager.default.moveItem(atPath: backupApp, toPath: destApp)
                 }
                 DispatchQueue.main.async { self.installFailed(fallbackURL: fallbackURL) }
