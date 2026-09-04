@@ -1,5 +1,10 @@
 # Changelog
 
+## v26090401 — 2026-09-04
+
+### Added
+- Search field above the /Applications card — type to filter every section by name; matching cards expand and show only the matching items, non-matching cards collapse out of view, with a live result count
+
 ## v26082503 — 2026-08-25
 
 ### Fixed

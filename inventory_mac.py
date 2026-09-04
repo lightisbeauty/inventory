@@ -424,6 +424,11 @@ li::before{content:'\\2014';color:#444;flex-shrink:0}
 .export-bar{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px;flex-shrink:0;padding-top:2px}
 .export-btn{font-family:monospace;font-size:11px;color:#41b6e6;background:none;border:0.5px solid #444;border-radius:4px;padding:5px 12px;cursor:pointer;text-transform:uppercase;letter-spacing:0.06em;white-space:nowrap}
 .export-btn:hover{border-color:#db3eb1}
+.search-bar{position:relative;margin-bottom:14px}
+.search-bar input{width:100%;background:#1a1a1a;border:0.5px solid #444;border-radius:6px;color:#fff;font-family:monospace;font-size:13px;padding:10px 100px 10px 14px;outline:none}
+.search-bar input:focus{border-color:#41b6e6}
+.search-bar input::placeholder{color:#666}
+.search-count{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-family:monospace;font-size:11px;color:#888;pointer-events:none;white-space:nowrap}
 .snapshot-picker{display:none}
 .snapshot-list{margin-bottom:12px}
 .snapshot-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:0.5px solid #222;gap:16px}
@@ -466,6 +471,7 @@ li::before{content:'\\2014';color:#444;flex-shrink:0}
 @media print{
   body{background:#fff;color:#000;padding:0.5in}
   .export-bar{display:none}
+  .search-bar{display:none}
   details{background:#f5f5f5;border:0.5px solid #ccc;break-inside:avoid}
   details[open]{break-inside:auto}
   .section-title{color:#1a6b8a}
@@ -552,6 +558,10 @@ def build():
   </div>
 </div>
 <div id="report-sections">
+<div class="search-bar">
+  <input type="text" id="search-input" placeholder="Search installed software…" oninput="filterInventory(this.value)">
+  <span class="search-count" id="search-count"></span>
+</div>
 """]
 
     # /Applications
@@ -649,7 +659,7 @@ def build():
         '</div>\n'
         '<div id="diff-view" class="diff-view"></div>\n'
         '<div id="snapshot-picker" class="snapshot-picker diff-view"></div>\n'
-        '<div class="footer">inventory v26082503 &middot; by: @lightisbeauty</div>\n'
+        '<div class="footer">inventory v26090401 &middot; by: @lightisbeauty</div>\n'
         '<script>\n'
         'var isNative=!!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.nativeExport);\n'
         'var _exportViewState=null;\n'
@@ -657,17 +667,55 @@ def build():
         '  var report=document.getElementById("report-sections");\n'
         '  var diff=document.getElementById("diff-view");\n'
         '  var picker=document.getElementById("snapshot-picker");\n'
-        '  _exportViewState={report:report.style.display,diff:diff.style.display,picker:picker.style.display};\n'
+        '  var searchInput=document.getElementById("search-input");\n'
+        '  _exportViewState={report:report.style.display,diff:diff.style.display,picker:picker.style.display,search:searchInput.value};\n'
         '  report.style.display="";\n'
         '  diff.style.display="none";\n'
         '  picker.style.display="none";\n'
+        '  if(searchInput.value){searchInput.value="";filterInventory("");}\n'
         '}\n'
         'function restoreExportView(){\n'
         '  if(!_exportViewState)return;\n'
         '  document.getElementById("report-sections").style.display=_exportViewState.report;\n'
         '  document.getElementById("diff-view").style.display=_exportViewState.diff;\n'
         '  document.getElementById("snapshot-picker").style.display=_exportViewState.picker;\n'
+        '  var searchInput=document.getElementById("search-input");\n'
+        '  if(_exportViewState.search){searchInput.value=_exportViewState.search;filterInventory(_exportViewState.search);}\n'
         '  _exportViewState=null;\n'
+        '}\n'
+        'var _searchOpenState=null;\n'
+        'function filterInventory(q){\n'
+        '  var report=document.getElementById("report-sections");\n'
+        '  var details=report.querySelectorAll("details");\n'
+        '  var countEl=document.getElementById("search-count");\n'
+        '  q=q.trim().toLowerCase();\n'
+        '  if(!q){\n'
+        '    details.forEach(function(d){\n'
+        '      d.style.display="";\n'
+        '      d.querySelectorAll("li").forEach(function(li){li.style.display="";});\n'
+        '      if(_searchOpenState&&_searchOpenState.has(d))d.open=_searchOpenState.get(d);\n'
+        '    });\n'
+        '    _searchOpenState=null;\n'
+        '    countEl.textContent="";\n'
+        '    return;\n'
+        '  }\n'
+        '  if(!_searchOpenState){\n'
+        '    _searchOpenState=new Map();\n'
+        '    details.forEach(function(d){_searchOpenState.set(d,d.open);});\n'
+        '  }\n'
+        '  var total=0;\n'
+        '  details.forEach(function(d){\n'
+        '    var matched=0;\n'
+        '    d.querySelectorAll("li").forEach(function(li){\n'
+        '      var isMatch=li.textContent.toLowerCase().indexOf(q)!==-1;\n'
+        '      li.style.display=isMatch?"":"none";\n'
+        '      if(isMatch)matched++;\n'
+        '    });\n'
+        '    total+=matched;\n'
+        '    d.style.display=matched>0?"":"none";\n'
+        '    d.open=matched>0;\n'
+        '  });\n'
+        '  countEl.textContent=total+(total===1?" result":" results");\n'
         '}\n'
         'function exportPDF(){\n'
         '  prepareExportView();\n'
