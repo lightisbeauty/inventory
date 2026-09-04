@@ -1,5 +1,6 @@
 .DS_Store
 CLAUDE.md
+.claude/
 _archive/
 _splash/
 _docs/
