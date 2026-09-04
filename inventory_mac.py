@@ -438,7 +438,7 @@ li::before{content:'\\2014';color:#444;flex-shrink:0}
 .snapshot-actions{display:flex;gap:8px;flex-shrink:0}
 .snapshot-delete{color:#db3eb1}
 .snapshot-footer{display:flex;align-items:center;padding-top:12px;border-top:0.5px solid #222}
-.snapshot-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1a1a;border:0.5px solid #444;border-radius:6px;padding:8px 20px;font-family:monospace;font-size:12px;color:#3ef09e;pointer-events:none;transition:opacity 0.3s;z-index:999}
+.snapshot-toast{position:fixed;visibility:hidden;background:#1a1a1a;border:0.5px solid #444;border-radius:6px;padding:6px 12px;font-family:monospace;font-size:11px;color:#3ef09e;white-space:nowrap;pointer-events:none;transition:opacity 0.3s;z-index:999}
 .diff-view{display:none}
 .diff-header{margin-bottom:1.5rem}
 .diff-header h2{font-size:18px;font-weight:700;color:#fff;margin-bottom:4px}
@@ -551,7 +551,7 @@ def build():
     <div class="sysinfo"><span>{esc(sysinfo.get('model','Mac'))}</span>{(' &middot; ' + esc(sysinfo.get('display',''))) if sysinfo.get('display') else ''} &middot; <span>{esc(sysinfo.get('chip','—'))}</span> &middot; <span>{esc(sysinfo.get('memory','—'))}</span> &middot; {esc(sysinfo.get('macos_name','macOS'))} <span>{esc(sysinfo.get('macos_ver',''))}</span> &middot; SN: <span>{esc(sysinfo.get('serial','—'))}</span></div>
   </div>
   <div class="export-bar">
-    <button class="export-btn" onclick="saveSnapshot()">Save Snapshot</button>
+    <button class="export-btn" id="save-snapshot-btn" onclick="saveSnapshot()">Save Snapshot</button>
     <button class="export-btn" onclick="saveHTML()">Export HTML</button>
     <button class="export-btn" onclick="openCompare()">Compare</button>
     <button class="export-btn" onclick="exportPDF()">Export PDF</button>
@@ -659,7 +659,7 @@ def build():
         '</div>\n'
         '<div id="diff-view" class="diff-view"></div>\n'
         '<div id="snapshot-picker" class="snapshot-picker diff-view"></div>\n'
-        '<div class="footer">inventory v26090401 &middot; by: @lightisbeauty</div>\n'
+        '<div class="footer">inventory v26090402 &middot; by: @lightisbeauty</div>\n'
         '<script>\n'
         'var isNative=!!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.nativeExport);\n'
         'var _exportViewState=null;\n'
@@ -755,10 +755,21 @@ def build():
         '  restoreExportView();\n'
         '  window.webkit.messageHandlers.nativeExport.postMessage({action:"saveSnapshot",html:html});\n'
         '}\n'
-        'function showSnapshotSaved(){\n'
-        '  var t=document.createElement("div");t.className="snapshot-toast";t.textContent="Snapshot saved";\n'
+        'function showSnapshotSaved(filename){\n'
+        '  var btn=document.getElementById("save-snapshot-btn");\n'
+        '  var existing=document.querySelector(".snapshot-toast");if(existing)existing.remove();\n'
+        '  var name=filename?parseSnapshotName(filename).display:"";\n'
+        '  var t=document.createElement("div");t.className="snapshot-toast";\n'
+        '  t.textContent=name?"Snapshot Saved: "+name:"Snapshot Saved";\n'
         '  document.body.appendChild(t);\n'
-        '  setTimeout(function(){t.style.opacity="0";setTimeout(function(){t.remove();},300);},1800);\n'
+        '  var btnRect=btn.getBoundingClientRect();\n'
+        '  var tRect=t.getBoundingClientRect();\n'
+        '  var left=btnRect.left-tRect.width-10;\n'
+        '  if(left<8)left=8;\n'
+        '  var top=btnRect.top+(btnRect.height-tRect.height)/2;\n'
+        '  if(top<8)top=8;\n'
+        '  t.style.top=top+"px";t.style.left=left+"px";t.style.visibility="";\n'
+        '  setTimeout(function(){t.style.opacity="0";setTimeout(function(){t.remove();},300);},3000);\n'
         '}\n'
         'function openCompare(){\n'
         '  if(isNative){\n'

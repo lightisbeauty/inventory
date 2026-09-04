@@ -1,5 +1,10 @@
 # Changelog
 
+## v26090402 — 2026-09-04
+
+### Added
+- Save Snapshot now shows a confirmation — "Snapshot Saved: <date & time>" — positioned to the left of the button for a few seconds, positioned dynamically so it always fits the full date/time text without overlapping the button or running off-screen
+
 ## v26090401 — 2026-09-04
 
 ### Added

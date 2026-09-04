@@ -1,7 +1,7 @@
 import Cocoa
 import WebKit
 
-let kCurrentVersion = "26090401"
+let kCurrentVersion = "26090402"
 
 class UpdateChecker: NSObject {
     static let shared = UpdateChecker()
@@ -429,10 +429,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNa
     }
 
     func saveSnapshot(_ html: String) {
-        let url = snapshotsDir.appendingPathComponent(snapshotFilename())
+        let filename = snapshotFilename()
+        let url = snapshotsDir.appendingPathComponent(filename)
         try? html.write(to: url, atomically: true, encoding: .utf8)
         DispatchQueue.main.async {
-            self.webView.evaluateJavaScript("showSnapshotSaved()")
+            if let data = try? JSONSerialization.data(withJSONObject: [filename]),
+               let json = String(data: data, encoding: .utf8) {
+                let arg = json.dropFirst().dropLast()
+                self.webView.evaluateJavaScript("showSnapshotSaved(\(arg))")
+            }
         }
     }
 
