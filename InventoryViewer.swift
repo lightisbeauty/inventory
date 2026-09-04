@@ -1,7 +1,7 @@
 import Cocoa
 import WebKit
 
-let kCurrentVersion = "26090402"
+let kCurrentVersion = "26090403"
 
 class UpdateChecker: NSObject {
     static let shared = UpdateChecker()

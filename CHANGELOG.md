@@ -1,5 +1,10 @@
 # Changelog
 
+## v26090403 — 2026-09-04
+
+### Fixed
+- The Save Snapshot confirmation toast added in v26090402 never actually appeared — it was rendered `visibility:hidden` for measurement purposes, then revealed by clearing the inline style, which just fell back to the still-hidden stylesheet rule instead of showing it. Now explicitly set to `visible`.
+
 ## v26090402 — 2026-09-04
 
 ### Added
